@@ -43,7 +43,7 @@ def process_metadata_file(csv_path, librispeech_dir):
         chunksize=10,
     )
 
-    md_file['embedding'] = embedding_list
+    md_file['embedding_path'] = embedding_list
     md_file.to_csv(csv_path, index=False)
 
 
