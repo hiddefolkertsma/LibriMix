@@ -1,7 +1,7 @@
 #!/bin/bash
 set -eu  # Exit on error
 
-storage_dir=$1
+storage_dir="/media/hidde/Storage/datasets"
 librispeech_dir=$storage_dir/LibriSpeech
 wham_dir=$storage_dir/wham_noise
 librimix_outdir=$storage_dir/
@@ -68,7 +68,7 @@ wait
 python_path=python
 
 # If you wish to rerun this script in the future please comment this line out.
-$python_path scripts/augment_train_noise.py --wham_dir $wham_dir
+# $python_path scripts/augment_train_noise.py --wham_dir $wham_dir
 
 for n_src in 2 3; do
   metadata_dir=metadata/Libri$n_src"Mix"

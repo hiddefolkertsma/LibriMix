@@ -95,7 +95,7 @@ def process_metadata_file(csv_path, freqs, n_src, librispeech_dir, wham_dir,
             dir_path = os.path.join(mode_path, dir_name)
             # If the files already exist then continue the loop
             if os.path.isdir(dir_path):
-                print(f"Directory {dir_path} already exist. "
+                print(f"Directory {dir_path} already exists. "
                       f"Files won't be overwritten")
                 continue
 
@@ -155,9 +155,11 @@ def process_utterances(md_file, librispeech_dir, wham_dir, freq, mode, subdirs,
 def process_utterance(n_src, librispeech_dir, wham_dir, freq, mode, subdirs, dir_path, row):
     res = []
     # Get sources and mixture infos
+    # TODO read RIR here
     mix_id, gain_list, sources = read_sources(row, n_src, librispeech_dir,
                                               wham_dir)
     # Transform sources
+    # TODO convolve clean sources with RIR here?
     transformed_sources = transform_sources(sources, freq, mode, gain_list)
     # Write the sources and get their paths
     abs_source_path_list = write_sources(mix_id,
@@ -173,7 +175,7 @@ def process_utterance(n_src, librispeech_dir, wham_dir, freq, mode, subdirs, dir
             sources_to_mix = transformed_sources[:n_src]
         elif subdir == 'mix_both':
             sources_to_mix = transformed_sources
-        elif subdir == 'mix_single':
+        elif subdir == 'mix_single': # single speaker + noise
             sources_to_mix = [transformed_sources[0],
                               transformed_sources[-1]]
         else:
@@ -231,8 +233,11 @@ def read_sources(row, n_src, librispeech_dir, wham_dir):
     """ Get sources and info to mix the sources """
     # Get info about the mixture
     mixture_id = row['mixture_ID']
+    # Get a Python list [Source_1_path, Source_2_path, ..., Source_n_path]
     sources_path_list = get_list_from_csv(row, 'source_path', n_src)
+    # Same for the gains: [Source_1_gain, Source_2_gain, ..., Source_n_gain]
     gain_list = get_list_from_csv(row, 'source_gain', n_src)
+    # This is a list of the actual loaded sources
     sources_list = []
     max_length = 0
     # Read the files to make the mixture
@@ -292,11 +297,14 @@ def extend_noise(noise, max_length):
 
 def transform_sources(sources_list, freq, mode, gain_list):
     """ Transform libriSpeech sources to librimix """
-    # Normalize sources
+    # Normalize sources (apply gain to them)
     sources_list_norm = loudness_normalize(sources_list, gain_list)
     # Resample the sources
     sources_list_resampled = resample_list(sources_list_norm, freq)
-    # Reshape sources
+    # Reshape sources:
+    # min: all files are cropped to the length of the shortest file
+    # max: all files are 0-padded at the end to the length of the 
+    #      longest file (including the noise file!)
     reshaped_sources = fit_lengths(sources_list_resampled, mode)
     return reshaped_sources
 
@@ -328,7 +336,7 @@ def fit_lengths(source_list, mode):
         target_length = min([len(source) for source in source_list])
         for source in source_list:
             sources_list_reshaped.append(source[:target_length])
-    else:
+    else: # mode == 'max'
         target_length = max([len(source) for source in source_list])
         for source in source_list:
             sources_list_reshaped.append(
@@ -339,6 +347,7 @@ def fit_lengths(source_list, mode):
 
 def write_sources(mix_id, transformed_sources, subdirs, dir_path, freq, n_src):
     # Write sources and mixtures and save their path
+    # This does **not** save the noise (hence the [:n_src] in the loop)
     abs_source_path_list = []
     ex_filename = mix_id + '.wav'
     for src, src_dir in zip(transformed_sources[:n_src], subdirs[:n_src]):
@@ -350,7 +359,7 @@ def write_sources(mix_id, transformed_sources, subdirs, dir_path, freq, n_src):
 
 
 def write_noise(mix_id, transformed_sources, dir_path, freq):
-    # Write noise save it's path
+    # Write noise and save its path
     noise = transformed_sources[-1]
     ex_filename = mix_id + '.wav'
     save_path = os.path.join(dir_path, 'noise', ex_filename)
@@ -369,7 +378,7 @@ def mix(sources_list):
 
 
 def write_mix(mix_id, mixture, dir_path, subdir, freq):
-    # Write noise save it's path
+    # Write mix and save its path
     ex_filename = mix_id + '.wav'
     save_path = os.path.join(dir_path, subdir, ex_filename)
     abs_save_path = os.path.abspath(save_path)
@@ -381,9 +390,9 @@ def compute_snr_list(mixture, sources_list):
     """Compute the SNR on the mixture mode min"""
     snr_list = []
     # Compute SNR for min mode
-    for i in range(len(sources_list)):
-        noise_min = mixture - sources_list[i]
-        snr_list.append(snr_xy(sources_list[i], noise_min))
+    for source in sources_list:
+        noise_min = mixture - source
+        snr_list.append(snr_xy(source, noise_min))
     return snr_list
 
 
