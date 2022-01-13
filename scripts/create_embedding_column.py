@@ -57,6 +57,7 @@ def process_row(librispeech_dir, row):
     utterances = [
         os.path.join(primary_dir, utt) for utt in os.listdir(full_dir)
         if os.path.isfile(os.path.join(full_dir, utt)) and utt != primary_file
+        and utt.endswith('.flac')
     ]
     # TODO check if chosen utterance is not the primary utterance
     # in another row in the metadata file (slow)
