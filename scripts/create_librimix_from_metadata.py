@@ -103,10 +103,10 @@ def process_metadata_file(csv_path, freqs, n_src, librispeech_dir, wham_dir,
                   f"in {dir_path}")
             # Create subdir
             if types == ['mix_clean']:
-                subdirs = [f's{i + 1}' for i in range(n_src)] + ['mix_clean']
+                subdirs = [f's{i + 1}' for i in range(n_src)] + ['mix_clean', 'embeddings']
             else:
                 subdirs = [f's{i + 1}' for i in range(n_src)] + types + [
-                    'noise']
+                    'noise', 'embeddings']
             # Create directories accordingly
             for subdir in subdirs:
                 os.makedirs(os.path.join(dir_path, subdir))
@@ -132,18 +132,18 @@ def process_utterances(md_file, librispeech_dir, wham_dir, freq, mode, subdirs,
     # Go through the metadata file and generate mixtures
     for results in tqdm.contrib.concurrent.process_map(
         functools.partial(
-            process_utterance, 
+            process_utterance,
             n_src, librispeech_dir, wham_dir, freq, mode, subdirs, dir_path),
         [row for _, row in md_file.iterrows()],
         chunksize=10,
     ):
-        for mix_id, snr_list, abs_mix_path, abs_source_path_list, abs_noise_path, length, subdir in results:
+        for mix_id, snr_list, abs_mix_path, abs_source_path_list, abs_noise_path, abs_embedding_path, length, subdir in results:
             # Add line to the dataframes
             add_to_metrics_metadata(md_dic[f"metrics_{dir_name}_{subdir}"],
                                     mix_id, snr_list)
             add_to_mixture_metadata(md_dic[f'mixture_{dir_name}_{subdir}'],
                                     mix_id, abs_mix_path, abs_source_path_list,
-                                    abs_noise_path, length, subdir)
+                                    abs_noise_path, abs_embedding_path, length, subdir)
 
     # Save the metadata files
     for md_df in md_dic:
@@ -156,7 +156,7 @@ def process_utterance(n_src, librispeech_dir, wham_dir, freq, mode, subdirs, dir
     res = []
     # Get sources and mixture infos
     # TODO read RIR here
-    mix_id, gain_list, sources = read_sources(row, n_src, librispeech_dir,
+    mix_id, gain_list, sources, embedding = read_sources(row, n_src, librispeech_dir,
                                               wham_dir)
     # Transform sources
     # TODO convolve clean sources with RIR here?
@@ -169,6 +169,8 @@ def process_utterance(n_src, librispeech_dir, wham_dir, freq, mode, subdirs, dir
     # Write the noise and get its path
     abs_noise_path = write_noise(mix_id, transformed_sources, dir_path,
                                  freq)
+
+    abs_embedding_path = write_embedding(mix_id, embedding, dir_path, freq)
     # Mixtures are different depending on the subdir
     for subdir in subdirs:
         if subdir == 'mix_clean':
@@ -188,7 +190,8 @@ def process_utterance(n_src, librispeech_dir, wham_dir, freq, mode, subdirs, dir
         length = len(mixture)
         # Compute SNR
         snr_list = compute_snr_list(mixture, sources_to_mix)
-        res.append((mix_id, snr_list, abs_mix_path, abs_source_path_list, abs_noise_path, length, subdir))
+        res.append((mix_id, snr_list, abs_mix_path, abs_source_path_list,
+                    abs_noise_path, abs_embedding_path, length, subdir))
 
     return res
 
@@ -261,7 +264,11 @@ def read_sources(row, n_src, librispeech_dir, wham_dir):
     sources_list.append(noise)
     gain_list.append(row['noise_gain'])
 
-    return mixture_id, gain_list, sources_list
+    # Read embedding
+    embedding_path = os.path.join(librispeech_dir, row['embedding_path'])
+    embedding, _ = sf.read(embedding_path, dtype='float32')
+
+    return mixture_id, gain_list, sources_list, embedding
 
 
 def get_list_from_csv(row, column, n_src):
@@ -303,7 +310,7 @@ def transform_sources(sources_list, freq, mode, gain_list):
     sources_list_resampled = resample_list(sources_list_norm, freq)
     # Reshape sources:
     # min: all files are cropped to the length of the shortest file
-    # max: all files are 0-padded at the end to the length of the 
+    # max: all files are 0-padded at the end to the length of the
     #      longest file (including the noise file!)
     reshaped_sources = fit_lengths(sources_list_resampled, mode)
     return reshaped_sources
@@ -368,6 +375,15 @@ def write_noise(mix_id, transformed_sources, dir_path, freq):
     return abs_save_path
 
 
+def write_embedding(mix_id, embedding, dir_path, freq):
+    # Write embedding and save its path
+    ex_filename = mix_id + '.wav'
+    save_path = os.path.join(dir_path, 'embeddings', ex_filename)
+    abs_save_path = os.path.abspath(save_path)
+    sf.write(abs_save_path, embedding, freq)
+    return abs_save_path
+
+
 def mix(sources_list):
     """ Do the mixing """
     # Initialize mixture
@@ -407,15 +423,16 @@ def add_to_metrics_metadata(metrics_df, mixture_id, snr_list):
 
 
 def add_to_mixture_metadata(mix_df, mix_id, abs_mix_path, abs_sources_path,
-                            abs_noise_path, length, subdir):
+                            abs_noise_path, abs_embedding_path, length, subdir):
     """ Add a new line to mixture_df """
     sources_path = abs_sources_path
     noise_path = [abs_noise_path]
+    embedding_path = [abs_embedding_path]
     if subdir == 'mix_clean':
         noise_path = []
     elif subdir == 'mix_single':
         sources_path = [abs_sources_path[0]]
-    row_mixture = [mix_id, abs_mix_path] + sources_path + noise_path + [length]
+    row_mixture = [mix_id, abs_mix_path] + sources_path + noise_path + embedding_path + [length]
     mix_df.loc[len(mix_df)] = row_mixture
 
 
