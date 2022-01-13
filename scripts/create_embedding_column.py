@@ -1,8 +1,9 @@
+import functools
 import os
 import argparse
 import pandas as pd
 import random
-from tqdm import tqdm
+import tqdm.contrib.concurrent
 
 
 parser = argparse.ArgumentParser()
@@ -36,26 +37,30 @@ def choose_embeddings(librispeech_dir, metadata_dir):
 def process_metadata_file(csv_path, librispeech_dir):
     """ Process a metadata generation file to choose embedding utterances """
     md_file = pd.read_csv(csv_path, engine='python')
-    embedding_list = []
-    for _, row in tqdm(md_file.iterrows(), total=md_file.shape[0]):
-        # Get primary speaker file
-        primary = row['source_1_path']
-        primary_dir, primary_file = os.path.split(primary)
-        full_dir = os.path.join(librispeech_dir, primary_dir)
-        # Choose a random other utterance from this speaker as the
-        # embedding utterance and save its path
-        utterances = [
-            os.path.join(primary_dir, utt) for utt in os.listdir(full_dir)
-            if os.path.isfile(os.path.join(full_dir, utt))
-            and utt != primary_file
-        ]
-        # TODO check if chosen utterance is not the primary utterance
-        # in another row in the metadata file (slow)
-        utterance = random.choice(utterances)
-        embedding_list.append(utterance)
+    embedding_list = tqdm.contrib.concurrent.process_map(
+        functools.partial(process_row, librispeech_dir),
+        [row for _, row in md_file.iterrows()],
+        chunksize=10,
+    )
 
     md_file['embedding'] = embedding_list
     md_file.to_csv(csv_path, index=False)
+
+
+def process_row(librispeech_dir, row):
+    # Get primary speaker file
+    primary = row['source_1_path']
+    primary_dir, primary_file = os.path.split(primary)
+    full_dir = os.path.join(librispeech_dir, primary_dir)
+    # Choose a random other utterance from this speaker as the
+    # embedding utterance and save its path
+    utterances = [
+        os.path.join(primary_dir, utt) for utt in os.listdir(full_dir)
+        if os.path.isfile(os.path.join(full_dir, utt)) and utt != primary_file
+    ]
+    # TODO check if chosen utterance is not the primary utterance
+    # in another row in the metadata file (slow)
+    return random.choice(utterances)
 
 
 if __name__ == "__main__":
