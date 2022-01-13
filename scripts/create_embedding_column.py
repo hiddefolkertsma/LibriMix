@@ -37,8 +37,9 @@ def choose_embeddings(librispeech_dir, metadata_dir):
 def process_metadata_file(csv_path, librispeech_dir):
     """ Process a metadata generation file to choose embedding utterances """
     md_file = pd.read_csv(csv_path, engine='python')
+    all_primaries = md_file['source_1_path']
     embedding_list = tqdm.contrib.concurrent.process_map(
-        functools.partial(process_row, librispeech_dir),
+        functools.partial(process_row, librispeech_dir, all_primaries),
         [row for _, row in md_file.iterrows()],
         chunksize=10,
     )
@@ -47,7 +48,7 @@ def process_metadata_file(csv_path, librispeech_dir):
     md_file.to_csv(csv_path, index=False)
 
 
-def process_row(librispeech_dir, row):
+def process_row(librispeech_dir, all_primaries, row):
     # Get primary speaker file
     primary = row['source_1_path']
     primary_dir, primary_file = os.path.split(primary)
@@ -56,11 +57,11 @@ def process_row(librispeech_dir, row):
     # embedding utterance and save its path
     utterances = [
         os.path.join(primary_dir, utt) for utt in os.listdir(full_dir)
-        if os.path.isfile(os.path.join(full_dir, utt)) and utt != primary_file
-        and utt.endswith('.flac')
+        if os.path.isfile(os.path.join(full_dir, utt)) # ignore dirs
+        and utt.endswith('.flac')    # ignore the transcript .txt files
+        and utt not in all_primaries # don't use any row's primary, incl. current row
     ]
-    # TODO check if chosen utterance is not the primary utterance
-    # in another row in the metadata file (slow)
+    
     return random.choice(utterances)
 
 
