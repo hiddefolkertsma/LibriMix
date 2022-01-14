@@ -4,6 +4,7 @@ set -eu  # Exit on error
 storage_dir="/media/hidde/Storage/datasets"
 librispeech_dir=$storage_dir/LibriSpeech
 wham_dir=$storage_dir/wham_noise
+rir_dir=$storage_dir/simulated_rirs_16k
 librimix_outdir=$storage_dir/
 
 function LibriSpeech_dev_clean() {
@@ -74,10 +75,11 @@ for n_src in 2 3; do
   metadata_dir=metadata/Libri$n_src"Mix"
   $python_path scripts/create_librimix_from_metadata.py --librispeech_dir $librispeech_dir \
     --wham_dir $wham_dir \
+	--rir_dir $rir_dir \
     --metadata_dir $metadata_dir \
     --librimix_outdir $librimix_outdir \
     --n_src $n_src \
-    --freqs 8k 16k \
-    --modes min max \
-    --types mix_clean mix_both mix_single
+    --freqs 16k \
+    --modes min \
+    --types mix_both
 done
