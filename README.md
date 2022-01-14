@@ -1,22 +1,21 @@
 ### About the dataset
-LibriMix is an open source dataset for source separation in noisy 
-environments. It is derived from LibriSpeech signals (clean subset) 
-and WHAM noise. It offers a free alternative to the WHAM dataset 
-and complements it. It will also enable cross-dataset experiments.
+This fork of LibriMix is an open source dataset for source separation in noisy 
+environments. It is derived from LibriSpeech signals (clean subset), WHAM noise and simulated room impulse responses ([OpenSLR 26](www.openslr.org/26/)).
+
 
 ### Generating LibriMix
 To generate LibriMix, clone the repo and run the main script : 
 [`generate_librimix.sh`](./generate_librimix.sh)
 
 ```
-git clone https://github.com/JorisCos/LibriMix
+git clone https://github.com/hiddefolkertsma/LibriMix
 cd LibriMix 
 ./generate_librimix.sh storage_dir
 ```
 
 Make sure that SoX is installed on your machine.
 
-For windows :
+For Windows :
 ```
 conda install -c groakat sox
 ```
