@@ -1,5 +1,6 @@
 import os
 import argparse
+from re import U
 import soundfile as sf
 import pandas as pd
 import numpy as np
@@ -173,6 +174,23 @@ def process_utterances(md_file, librispeech_dir, wham_dir, freq, mode, subdirs,
         # Get labels and save
         labels = vad.label(utt_path)
         np.save(os.path.join(dir_path, 'labels', f'{mixture_id}'), labels)
+
+    # Get the primary speakers' utterances
+    # Example: dev-clean/3536/8226/3536-8226-0026.flac -> /dev-clean/3536
+    speaker_paths = md_file['source_1_path'].str.rsplit('/', 2).str[0].unique()
+    speaker_paths = [os.path.join(librispeech_dir, path) for path in speaker_paths]
+    # For each speaker, create an embedding for all their utterances
+    # TODO: this can probably be done in a cleaner way
+    for speaker_path in tqdm.tqdm(speaker_paths):
+        # Create a folder for the speaker's embeddings
+        speaker_id = os.path.basename(speaker_path)
+        os.makedirs(os.path.join(dir_path, 'embeddings', speaker_id), exist_ok=True)
+        # Get all utterances that belong to the speaker
+        for path, _, files in os.walk(speaker_path):
+            for file in [f for f in files if os.path.isfile(os.path.join(path, f)) and f.endswith('.flac')]:
+                # Get the embedding for the utterance and save it
+                embedding = compute_embedding(os.path.join(path, file))
+                np.save(os.path.join(dir_path, 'embeddings', speaker_id, file.split('.')[0]), embedding)
 
     # Save the metadata files
     for md_df in md_dic:
@@ -419,6 +437,11 @@ def add_to_mixture_metadata(mix_df, mix_id, abs_mix_path, abs_sources_path,
         sources_path = [abs_sources_path[0]]
     row_mixture = [mix_id, abs_mix_path] + sources_path + noise_path + [length]
     mix_df.loc[len(mix_df)] = row_mixture
+
+
+def compute_embedding(path):
+    # TODO actually compute embedding here
+    return np.zeros(256)
 
 
 if __name__ == "__main__":
