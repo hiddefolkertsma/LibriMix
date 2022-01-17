@@ -1,6 +1,11 @@
 ### About the dataset
 This fork of LibriMix is an open source dataset for source separation in noisy 
-environments. It is derived from LibriSpeech signals (clean subset), WHAM noise and simulated room impulse responses ([OpenSLR 26](www.openslr.org/26/)).
+environments. It is derived from LibriSpeech signals (clean subset), WHAM noise and simulated room impulse responses ([OpenSLR 26](https://www.openslr.org/26/)).
+
+## Extensions made
+This is a fork from https://github.com/JorisCos/LibriMix, this version of LibriMix has the following extensions:
+- For each mixture, a random other utterance from that mixture's primary speaker is chosen as an embedding utterance. **This currently picks an utterance from the same chapter, it may be beneficial to pick one from any chapter read by that speaker**
+- For each mixture, a random room impulse response (RIR) from OpenSLR 26 is chosen. The noisy mixture is then convolved with this RIR before it is saved.
 
 
 ### Generating LibriMix
