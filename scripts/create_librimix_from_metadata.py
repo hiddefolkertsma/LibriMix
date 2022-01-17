@@ -6,11 +6,15 @@ import numpy as np
 import functools
 from scipy.signal import resample_poly, fftconvolve
 import tqdm.contrib.concurrent
+from vad import WebRTCVAD
 
-# eps secures log and division
+# Eps secures log and division
 EPS = 1e-10
 # Rate of the sources in LibriSpeech
 RATE = 16000
+# Frame size in ms and aggressiveness for the VAD
+FRAME_SIZE_MS = 30
+AGGRESSIVENESS = 3
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--librispeech_dir', type=str, required=True,
@@ -107,10 +111,10 @@ def process_metadata_file(csv_path, freqs, n_src, librispeech_dir, wham_dir, rir
                   f"in {dir_path}")
             # Create subdir
             if types == ['mix_clean']:
-                subdirs = [f's{i + 1}' for i in range(n_src)] + ['mix_clean', 'embeddings', 'rirs']
+                subdirs = [f's{i + 1}' for i in range(n_src)] + ['mix_clean', 'embeddings', 'labels', 'rirs']
             else:
                 subdirs = [f's{i + 1}' for i in range(n_src)] + types + [
-                    'noise', 'embeddings', 'rirs']
+                    'noise', 'embeddings', 'labels', 'rirs']
             # Create directories accordingly
             for subdir in subdirs:
                 os.makedirs(os.path.join(dir_path, subdir))
@@ -147,7 +151,16 @@ def process_utterances(md_file, librispeech_dir, wham_dir, rir_dir, freq, mode, 
                                     mix_id, snr_list)
             add_to_mixture_metadata(md_dic[f'mixture_{dir_name}_{subdir}'],
                                     mix_id, abs_mix_path, abs_source_path_list,
-                                    abs_noise_path, abs_embedding_path, abs_rir_path, length, subdir)
+                                    abs_noise_path, abs_embedding_path, length, subdir)
+
+    # Generate VAD labels for primary speaker utterances
+    vad = WebRTCVAD(AGGRESSIVENESS, FRAME_SIZE_MS)
+    for mixture_id in tqdm.tqdm(md_file['mixture_ID']):
+        # Get the path to the primary speaker's utterance
+        utt_path = os.path.join(dir_path, 's1', f'{mixture_id}.wav')
+        # Get labels and save
+        labels = vad.label(utt_path)
+        np.save(os.path.join(dir_path, 'labels', f'{mixture_id}'), labels)
 
     # Save the metadata files
     for md_df in md_dic:
@@ -236,6 +249,7 @@ def create_empty_mixture_md(n_src, subdir):
     elif subdir == 'mix_single':
         mixture_dataframe["source_1_path"] = {}
         mixture_dataframe[f"noise_path"] = {}
+    mixture_dataframe['embedding'] = {}
     mixture_dataframe['length'] = {}
     return mixture_dataframe
 
