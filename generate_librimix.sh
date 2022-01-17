@@ -4,7 +4,6 @@ set -eu  # Exit on error
 storage_dir=$1
 librispeech_dir=$storage_dir/LibriSpeech
 wham_dir=$storage_dir/wham_noise
-rir_dir=$storage_dir/simulated_rirs_16k
 librimix_outdir=$storage_dir/
 
 function LibriSpeech_dev_clean() {
@@ -57,22 +56,11 @@ function wham() {
 	fi
 }
 
-function rir() {
-	if ! test -e $rir_dir; then
-		echo "Download room impulse response into $storage_dir"
-		# If downloading stalls for more than 20s, relaunch from previous state.
-		wget -c --tries=0 --read-timeout=20 https://openslr.elda.org/resources/26/sim_rir_16k.zip -P $storage_dir
-		unzip -qn $storage_dir/sim_rir_16k.zip -d $storage_dir
-		rm -rf $storage_dir/sim_rir_16k.zip
-	fi
-}
-
 LibriSpeech_dev_clean &
 LibriSpeech_test_clean &
 LibriSpeech_clean100 &
 LibriSpeech_clean360 &
 wham &
-rir &
 
 wait
 
@@ -86,7 +74,6 @@ for n_src in 2 3; do
   metadata_dir=metadata/Libri$n_src"Mix"
   $python_path scripts/create_librimix_from_metadata.py --librispeech_dir $librispeech_dir \
     --wham_dir $wham_dir \
-	--rir_dir $rir_dir \
     --metadata_dir $metadata_dir \
     --librimix_outdir $librimix_outdir \
     --n_src $n_src \
