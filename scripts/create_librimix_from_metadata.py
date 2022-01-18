@@ -168,12 +168,15 @@ def process_utterances(md_file, librispeech_dir, wham_dir, freq, mode, subdirs,
 
     # Generate VAD labels for primary speaker utterances
     vad = WebRTCVAD(AGGRESSIVENESS, FRAME_SIZE_MS)
+    labels_paths = []
     for mixture_id in tqdm.tqdm(md_file['mixture_ID']):
         # Get the path to the primary speaker's utterance
         utt_path = os.path.join(dir_path, 's1', f'{mixture_id}.wav')
         # Get labels and save
         labels = vad.label(utt_path)
-        np.save(os.path.join(dir_path, 'labels', f'{mixture_id}'), labels)
+        labels_path = os.path.join(dir_path, 'labels', f'{mixture_id}.npy')
+        labels_paths.append(labels_path)
+        np.save(labels_path, labels)
 
     # Get the primary speakers' utterances
     # Example: dev-clean/3536/8226/3536-8226-0026.flac -> /dev-clean/3536
@@ -195,6 +198,7 @@ def process_utterances(md_file, librispeech_dir, wham_dir, freq, mode, subdirs,
     # Save the metadata files
     for md_df in md_dic:
         # Save the metadata in out_dir ./data/wavxk/mode/subset
+        md_dic[md_df]['labels_path'] = labels_paths
         save_path_mixture = os.path.join(subset_metadata_path, md_df + '.csv')
         md_dic[md_df].to_csv(save_path_mixture, index=False)
 
