@@ -445,7 +445,7 @@ def add_to_mixture_metadata(mix_df, mix_id, abs_mix_path, abs_sources_path,
 
 def compute_embedding(path):
     # TODO actually compute embedding here
-    return np.zeros(256)
+    return np.zeros(256, dtype=np.float32)
 
 
 if __name__ == "__main__":
