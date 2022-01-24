@@ -16,22 +16,24 @@ def main(args):
     wham_noise_dir = args.wham_dir
     # Get train dir
     subdir = os.path.join(wham_noise_dir, 'tr')
+    aug_dir = os.path.join(wham_noise_dir, 'tr_aug')
     # List files in that dir
-    sound_paths = glob.glob(os.path.join(subdir, '**/*.wav'),
-                            recursive=True)
-    # Avoid running this script if it already have been run
-    if len(sound_paths) == 60000:
-        print("It appears that augmented files have already been generated.\n"
-              "Skipping data augmentation.")
-        return
-    elif len(sound_paths) != 20000:
+    sound_paths = glob.glob(os.path.join(subdir, '**/*.wav'), recursive=True)
+    if not os.path.isdir(aug_dir):
+        os.mkdir(aug_dir)
+        print(f'Augmenting {subdir} files')
+        # Transform audio speed
+        augment_noise(sound_paths, 0.8)
+        augment_noise(sound_paths, 1.2)
+
+    aug_paths = glob.glob(os.path.join(aug_dir, '**/*.wav'), recursive=True)
+    if len(aug_paths) != 30:
         print("It appears that augmented files have not been generated properly\n"
               "Resuming augmentation.")
-        originals = [x for x in sound_paths if 'sp' not in x]
-        to_be_removed_08 = [x.replace('sp08','') for x in sound_paths if 'sp08' in x]
-        to_be_removed_12 = [x.replace('sp12','') for x in sound_paths if 'sp12' in x ]
-        sound_paths_08 = list(set(originals) - set(to_be_removed_08))
-        sound_paths_12 = list(set(originals) - set(to_be_removed_12))
+        to_be_removed_08 = [x.replace('sp08','') for x in aug_paths if 'sp08' in x]
+        to_be_removed_12 = [x.replace('sp12','') for x in aug_paths if 'sp12' in x ]
+        sound_paths_08 = list(set(sound_paths) - set(to_be_removed_08))
+        sound_paths_12 = list(set(sound_paths) - set(to_be_removed_12))
         augment_noise(sound_paths_08, 0.8)
         augment_noise(sound_paths_12, 1.2)
     else:
@@ -59,8 +61,8 @@ def apply_fx(sound_path, speed):
     # Apply effect
     s = fx(s)
     # Write the file
-    sf.write(f"""{sound_path.replace(
-        '.wav',f"sp{str(speed).replace('.','')}" +'.wav')}""", s, rate)
+    sf.write(f"""{sound_path.replace('.wav', f"sp{str(speed).replace('.','')}" +'.wav')}"""
+                .replace('/tr', '/tr_aug'), s, rate)
 
 
 if __name__ == "__main__":

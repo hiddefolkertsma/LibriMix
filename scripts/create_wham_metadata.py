@@ -48,9 +48,11 @@ def create_wham_noise_metadata(wham_noise_dir, md_dir):
             dir_metadata['length'] >= num_samples]
         # Create save path
         save_path = os.path.join(md_dir, name + '.csv')
-        print(f'Medatada file created in {save_path}')
-        dir_metadata.to_csv(save_path, index=False)
-
+        print(f'Metadata file created in {save_path}')
+        if ldir == 'tr_aug':
+            dir_metadata.to_csv(save_path, mode='a', index=False, header=False)
+        else:
+            dir_metadata.to_csv(save_path, index=False)
 
 def check_already_generated(md_dir):
     """ Check if files have already been generated """
@@ -63,8 +65,10 @@ def check_already_generated(md_dir):
         f.replace("test", "tt").replace("train", "tr").replace("dev", "cv").
             replace(".csv", "") for f in already_generated_csv]
     # Actual directories that haven't already been processed
-    not_already_processed_dir = list(set(wham_noise_dirs) -
-                                     set(already_processed_dir))
+    not_already_processed_dir = [d for d in wham_noise_dirs if d not in already_processed_dir]
+    # Process tr_aug iff tr will be processed
+    if "tr" in not_already_processed_dir:
+        not_already_processed_dir.append("tr_aug")
     return not_already_processed_dir
 
 
@@ -75,9 +79,9 @@ def create_wham_noise_dataframe(wham_noise_dir, subdir):
     print(f"Processing files from {subdir} dir")
     # Get the current directory path
     dir_path = os.path.join(wham_noise_dir, subdir)
-    # Recursively look for .wav files in current directory
-    sound_paths = glob.glob(os.path.join(dir_path, '**/*.wav'),
-                            recursive=True)
+    # Recursively look for .wav and .flac files in current directory
+    sound_paths = glob.glob(os.path.join(dir_path, '**/*.flac'), recursive=True)
+    sound_paths += glob.glob(os.path.join(dir_path, '**/*.wav'), recursive=True)
     # Create the dataframe corresponding to this directory
     dir_md = pd.DataFrame(columns=['noise_ID', 'subset', 'length', 'augmented',
                                    'origin_path'])
@@ -88,9 +92,7 @@ def create_wham_noise_dataframe(wham_noise_dir, subdir):
         noise_id = os.path.split(sound_path)[1]
         # Get its length
         length = len(sf.SoundFile(sound_path))
-        augment = False
-        if 'sp08' in sound_path or 'sp12' in sound_path:
-            augment = True
+        augment = subdir == 'tr_aug'
         # Get the sound file relative path
         rel_path = os.path.relpath(sound_path, wham_noise_dir)
         # Add information to the dataframe
