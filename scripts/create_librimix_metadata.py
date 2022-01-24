@@ -1,13 +1,13 @@
 import argparse
+import functools
 import os
 import random
 import warnings
-
 import numpy as np
 import pandas as pd
 import pyloudnorm as pyln
 import soundfile as sf
-from tqdm import tqdm
+import tqdm.contrib.concurrent
 
 # Global parameters
 # eps secures log and division
@@ -57,8 +57,7 @@ def main(args):
 
 def create_librimix_metadata(librispeech_dir, librispeech_md_dir, wham_dir,
                              wham_md_dir, md_dir, n_src):
-    """ Generate LibriMix metadata according to LibriSpeech metadata """
-
+    """Generate LibriMix metadata using LibriSpeech and WHAM! metadata."""
     # Dataset name
     dataset = f'libri{n_src}mix'
     # List metadata files in LibriSpeech
@@ -69,8 +68,7 @@ def create_librimix_metadata(librispeech_dir, librispeech_md_dir, wham_dir,
     # Example : to_be_ignored = ['dev-other.csv']
     to_be_ignored = []
 
-    check_already_generated(md_dir, dataset, to_be_ignored,
-                            librispeech_md_files)
+    check_already_generated(md_dir, dataset, to_be_ignored, librispeech_md_files)
     # Go through each metadata file and create metadata accordingly
     for librispeech_md_file in librispeech_md_files:
         if not librispeech_md_file.endswith('.csv'):
@@ -81,9 +79,9 @@ def create_librimix_metadata(librispeech_dir, librispeech_md_dir, wham_dir,
             wham_md_file = [f for f in wham_md_files if
                             f.startswith(librispeech_md_file.split('-')[0])][0]
         except IndexError:
-            print('Wham metadata are missing you can either generate the '
-                  'missing wham files or add the librispeech metadata to '
-                  'to_be_ignored list')
+            print('WHAM! metadata is missing. You can either generate the '
+                  'missing WHAM! files or add the LibriSpeech metadata to '
+                  'the to_be_ignored list')
             break
 
         # Open .csv files from LibriSpeech
@@ -114,13 +112,13 @@ def create_librimix_metadata(librispeech_dir, librispeech_md_dir, wham_dir,
 
 def check_already_generated(md_dir, dataset, to_be_ignored,
                             librispeech_md_files):
-    # Check if the metadata files in LibriSpeech already have been used
+    """Check which metadata files have already been generated."""
     already_generated = os.listdir(md_dir)
     for generated in already_generated:
         if generated.startswith(f"{dataset}") and 'info' not in generated:
-            if 'train-100' in generated:
+            if 'train-clean-100' in generated:
                 to_be_ignored.append('train-clean-100.csv')
-            elif 'train-360' in generated:
+            elif 'train-clean-360' in generated:
                 to_be_ignored.append('train-clean-360.csv')
             elif 'dev' in generated:
                 to_be_ignored.append('dev-clean.csv')
@@ -134,144 +132,135 @@ def check_already_generated(md_dir, dataset, to_be_ignored,
 
 def create_librimix_df(librispeech_md_file, librispeech_dir,
                        wham_md_file, wham_dir, n_src):
-    """ Generate librimix dataframe from a LibriSpeech and wha md file"""
+    """Generate LibriMix dataframe from LibriSpeech and WHAM metadata files."""
 
     # Create a dataframe that will be used to generate sources and mixtures
-    mixtures_md = pd.DataFrame(columns=['mixture_ID'])
-    # Create a dataframe with additional infos.
+    mixtures_md = pd.DataFrame(columns=['mixture_ID', 'primary_speaker'])
+    # Create a dataframe with additional info.
     mixtures_info = pd.DataFrame(columns=['mixture_ID'])
     # Add columns (depends on the number of sources)
     for i in range(n_src):
         mixtures_md[f"source_{i + 1}_path"] = {}
+        mixtures_md[f"source_{i + 1}_start"] = {}
         mixtures_md[f"source_{i + 1}_gain"] = {}
         mixtures_info[f"speaker_{i + 1}_ID"] = {}
         mixtures_info[f"speaker_{i + 1}_sex"] = {}
     mixtures_md["noise_path"] = {}
     mixtures_md["noise_gain"] = {}
-    # Generate pairs of sources to mix
-    pairs, pairs_noise = set_pairs(librispeech_md_file, wham_md_file, n_src)
+    # Generate pairs of sources and accompanying noise to mix
+    pairs = generate_pairs(librispeech_md_file, wham_md_file, n_src)
     clip_counter = 0
-    # For each combination create a new line in the dataframe
-    for pair, pair_noise in tqdm(zip(pairs, pairs_noise), total=len(pairs)):
-        # return infos about the sources, generate sources
-        sources_info, sources_list_max = read_sources(
-            librispeech_md_file, pair, n_src, librispeech_dir)
-        # Add noise
-        sources_info, sources_list_max = add_noise(
-            wham_md_file, wham_dir, pair_noise, sources_list_max, sources_info)
-        # compute initial loudness, randomize loudness and normalize sources
-        loudness, _, sources_list_norm = set_loudness(sources_list_max)
-        # Do the mixture
-        mixture_max = mix(sources_list_norm)
-        # Check the mixture for clipping and renormalize if necessary
-        renormalize_loudness, did_clip = check_for_cliping(mixture_max,
-                                                           sources_list_norm)
-        clip_counter += int(did_clip)
-        # Compute gain
-        gain_list = compute_gain(loudness, renormalize_loudness)
 
-        # Add information to the dataframe
-        row_mixture, row_info = get_row(sources_info, gain_list, n_src)
+    # Compute the mixture metadata for each pair
+    for row_mixture, row_info, clipped in tqdm.contrib.concurrent.process_map(
+            functools.partial(process_pair, librispeech_md_file, librispeech_dir,
+                       wham_md_file, wham_dir, n_src),
+        pairs, chunksize=10, 
+    ):
         mixtures_md.loc[len(mixtures_md)] = row_mixture
         mixtures_info.loc[len(mixtures_info)] = row_info
+        clip_counter += clipped
+
+    # For each combination create a new line in the dataframe
     print(f"Among {len(mixtures_md)} mixtures, {clip_counter} clipped.")
     return mixtures_md, mixtures_info
 
 
-def set_pairs(librispeech_md_file, wham_md_file, n_src):
-    """ set pairs of sources to make the mixture """
+def process_pair(librispeech_md_file, librispeech_dir,
+                       wham_md_file, wham_dir, n_src, pair):
+    """Process a pair of sources to mix."""
+    utt_pair, noise = pair # Indices of the utterances and the noise
+    # Read the utterance files and get some metadata
+    source_info, source_list = read_utterances(
+        librispeech_md_file, utt_pair, librispeech_dir)
+    # Add the noise
+    source_info, source_list = add_noise(
+        wham_md_file, wham_dir, noise, source_list, source_info)
+    # Compute initial loudness, randomize loudness and normalize sources
+    loudness, _, source_list_norm = set_loudness(source_list)
+    # Randomly place the speech clips in the mixture
+    source_info, source_list_pad = randomly_pad(source_list_norm, source_info, n_src)
+    # Do the mixture
+    mixture = mix(source_list_pad)
+    # Check the mixture for clipping and renormalize if necessary
+    # (we pass source_list_norm here because we don't want the zero padding
+    # to influence the loudness)
+    renormalize_loudness, did_clip = check_for_clipping(mixture,
+                                                        source_list_norm)
+    # Compute gain
+    gain_list = compute_gain(loudness, renormalize_loudness)
+    # Add information to the dataframe
+    row_mixture, row_info = get_row(source_info, gain_list, n_src)
+    
+    return row_mixture, row_info, did_clip
+
+
+def generate_pairs(librispeech_md_file, wham_md_file, n_src):
+    """Choose pairs of sources for the mixtures."""
     # Initialize list for pairs sources
     utt_pairs = []
-    noise_pairs = []
-    # In train sets utterance are only used once
+    noises = []
+    # In train sets utterances are only used once
     if 'train' in librispeech_md_file.iloc[0]['subset']:
-        utt_pairs = set_utt_pairs(librispeech_md_file, utt_pairs, n_src)
-        noise_pairs = set_noise_pairs(utt_pairs, noise_pairs,
-                                      librispeech_md_file, wham_md_file)
+        utt_pairs = generate_utt_pairs(librispeech_md_file, utt_pairs, n_src)
+        noises = choose_noises(utt_pairs, noises, wham_md_file)
     # Otherwise we want 3000 mixtures
     else:
         while len(utt_pairs) < 3000:
-            utt_pairs = set_utt_pairs(librispeech_md_file, utt_pairs, n_src)
-            noise_pairs = set_noise_pairs(utt_pairs, noise_pairs,
-                                          librispeech_md_file, wham_md_file)
-            utt_pairs, noise_pairs = remove_duplicates(utt_pairs, noise_pairs)
+            utt_pairs = generate_utt_pairs(librispeech_md_file, utt_pairs, n_src)
+            noises = choose_noises(utt_pairs, noises, wham_md_file)
+            utt_pairs, noises = remove_duplicates(utt_pairs, noises)
         utt_pairs = utt_pairs[:3000]
-        noise_pairs = noise_pairs[:3000]
+        noises = noises[:3000]
 
-    return utt_pairs, noise_pairs
-
-
-def set_utt_pairs(librispeech_md_file, pair_list, n_src):
-    # A counter
-    c = 0
-    # Index of the rows in the metadata file
-    index = list(range(len(librispeech_md_file)))
-
-    # Try to create pairs with different speakers end after 200 fails
-    while len(index) >= n_src and c < 200:
-        couple = random.sample(index, n_src)
-        # Check that speakers are different
-        speaker_list = set([librispeech_md_file.iloc[couple[i]]['speaker_ID']
-                            for i in range(n_src)])
-        # If there are duplicates then increment the counter
-        if len(speaker_list) != n_src:
-            c += 1
-        # Else append the combination to pair_list and erase the combination
-        # from the available indexes
-        else:
-            for i in range(n_src):
-                index.remove(couple[i])
-            pair_list.append(couple)
-            c = 0
-    return pair_list
+    return list(zip(utt_pairs, noises))
 
 
-def set_noise_pairs(pairs, noise_pairs, librispeech_md_file, wham_md_file):
-    print('Generating pairs')
+def generate_utt_pairs(librispeech_md_file, utt_pairs, n_src):
+    """Generate pairs of utterances for the mixtures."""
+    # Create a dict of speakers
+    utt_dict = {}
+    # Maps from speaker ID to list of all utterance indices in the metadata file
+    speakers = list(librispeech_md_file["speaker_ID"].unique())
+    for speaker in speakers:
+        utt_indices = librispeech_md_file.index[librispeech_md_file["speaker_ID"] == speaker]
+        utt_dict[speaker] = list(utt_indices)
+    
+    while len(speakers) >= n_src:
+        # Select random speakers
+        selected = random.sample(speakers, n_src)
+        # Select random utterance from each speaker
+        utt_list = []
+        for speaker in selected:
+            utt = random.choice(utt_dict[speaker])
+            utt_list.append(utt)
+            utt_dict[speaker].remove(utt)
+            if not utt_dict[speaker]: # no more utts for this speaker
+                speakers.remove(speaker)
+        utt_pairs.append(utt_list)
+
+    return utt_pairs
+
+
+def choose_noises(pairs, noise_pairs, wham_md_file):
+    """Choose noise sources for the mixtures."""
     # Initially take not augmented data
     md = wham_md_file[wham_md_file['augmented'] == False]
     # If there are more mixtures than noises then use augmented data
     if len(pairs) > len(md):
         md = wham_md_file
-    # Copy pairs because we are going to remove elements from pairs
-    for pair in pairs.copy():
-        # get sources infos
-        sources = [librispeech_md_file.iloc[pair[i]]
-                   for i in range(len(pair))]
-        # get max_length
-        length_list = [source['length'] for source in sources]
-        max_length = max(length_list)
-        # Ideal choices are noises longer than max_length
-        possible = md[md['length'] >= max_length]
-        # if possible is not empty
-        try:
-            # random noise longer than max_length
-            pair_noise = random.sample(list(possible.index), 1)
-            # add that noise's index to the list
-            noise_pairs.append(pair_noise)
-            # remove that noise from the remaining noises
-            md = md.drop(pair_noise)
-        # if possible is empty
-        except ValueError:
-            # if we deal with training files
-            if 'train' in librispeech_md_file.iloc[0]['subset']:
-                # take the longest noise remaining
-                pair_noise = list(md.index)[-1]
-                # add it to noise list
-                noise_pairs.append(pair_noise)
-                # remove it from remaining noises
-                md = md.drop(pair_noise)
-            # if dev or test
-            else:
-                # just delete the pair we will redo this process
-                pairs.remove(pair)
+    # If there are still more mixtures than noises, repeat the elements
+    # in the noise list as necessary (this is ceil division)
+    repeat = -(len(pairs) // -len(md))
+    # For k pairs of utterances, pick k noise clips
+    noise_pairs = random.sample(list(md.index) * repeat, len(pairs))
 
     return noise_pairs
 
 
 def remove_duplicates(utt_pairs, noise_pairs):
-    print('Removing duplicates')
-    # look for identical mixtures O(n²)
+    """"Remove duplicate pairs."""
+    # Look for identical mixtures (O(n²))
     for i, (pair, pair_noise) in enumerate(zip(utt_pairs, noise_pairs)):
         for j, (du_pair, du_pair_noise) in enumerate(
                 zip(utt_pairs, noise_pairs)):
@@ -282,40 +271,36 @@ def remove_duplicates(utt_pairs, noise_pairs):
     return utt_pairs, noise_pairs
 
 
-def read_sources(metadata_file, pair, n_src, librispeech_dir):
+def read_utterances(librispeech_md_file, pair, librispeech_dir):
+    """Load the utterances as audio files and get utterance metadata."""
     # Read lines corresponding to pair
-    sources = [metadata_file.iloc[pair[i]] for i in range(n_src)]
-    # Get sources info
-    speaker_id_list = [source['speaker_ID'] for source in sources]
-    sex_list = [source['sex'] for source in sources]
-    length_list = [source['length'] for source in sources]
-    path_list = [source['origin_path'] for source in sources]
-    id_l = [os.path.split(source['origin_path'])[1].strip('.flac')
-            for source in sources]
-    mixtures_id = "_".join(id_l)
+    utt_md = librispeech_md_file.iloc[pair]
 
-    # Get the longest and shortest source len
-    max_length = max(length_list)
-    sources_list = []
+    utterance_list = []
+    id_list = []
+    for _, utt in utt_md.iterrows():
+        # Read the file
+        abs_path = os.path.join(librispeech_dir, utt['origin_path'])
+        signal, _ = sf.read(abs_path, dtype='float32')
+        utterance_list.append(signal)
+        # Save its id
+        id_list.append(os.path.split(utt['origin_path'])[1].strip('.flac'))
+    
+    # Metadata for the mixture
+    utterances_info = {
+        'mixture_id': "_".join(id_list),
+        'speaker_id_list': list(utt_md['speaker_ID']),
+        'sex_list': list(utt_md['sex']),
+        'path_list': list(utt_md['origin_path'])
+    }
 
-    # Read the source and compute some info
-    for i in range(n_src):
-        source = metadata_file.iloc[pair[i]]
-        absolute_path = os.path.join(librispeech_dir,
-                                     source['origin_path'])
-        s, _ = sf.read(absolute_path, dtype='float32')
-        sources_list.append(
-            np.pad(s, (0, max_length - len(s)), mode='constant'))
-
-    sources_info = {'mixtures_id': mixtures_id,
-                    'speaker_id_list': speaker_id_list, 'sex_list': sex_list,
-                    'path_list': path_list}
-    return sources_info, sources_list
+    return utterances_info, utterance_list
 
 
-def add_noise(wham_md_file, wham_dir, pair_noise, sources_list, sources_info):
+def add_noise(wham_md_file, wham_dir, noise_idx, source_list, source_info):
+    """Read noise file and add it to source_list."""
     # Get the row corresponding to the index
-    noise = wham_md_file.loc[pair_noise]
+    noise = wham_md_file.iloc[noise_idx]
     # Get the noise path
     try:
         noise_path = os.path.join(wham_dir, noise['origin_path'].values[0])
@@ -326,24 +311,41 @@ def add_noise(wham_md_file, wham_dir, pair_noise, sources_list, sources_info):
     # Keep the first channel
     if len(n.shape) > 1:
         n = n[:, 0]
-    # Get expected length
-    length = len(sources_list[0])
-    # Pad if shorter
-    if length > len(n):
-        sources_list.append(np.pad(n, (0, length - len(n)), mode='constant'))
-    # Cut if longer
-    else:
-        sources_list.append(n[:length])
+
+    # Shorten any utterances that are longer than the noise
+    for i, _ in enumerate(source_list):
+        source_list[i] = source_list[i][:len(n)]
+    source_list.append(n)
+
     # Get relative path
-    try :
-        sources_info['noise_path'] = noise['origin_path'].values[0]
+    try:
+        source_info['noise_path'] = noise['origin_path'].values[0]
     except AttributeError:
-        sources_info['noise_path'] = noise['origin_path']
-    return sources_info, sources_list
+        source_info['noise_path'] = noise['origin_path']
+    return source_info, source_list
+
+
+def randomly_pad(sources_list, sources_info, n_src):
+    """Randomly zero-pad the sources left and right to the length of the noise clip.
+    This places them somewhere in the mixture at random."""
+    noise = sources_list[-1]
+    length = len(noise) # clip length
+    sources_padded = []
+    sources_info['start_list'] = []
+
+    # pad all speaker utts to this length
+    for source in sources_list[:n_src]:
+        to_pad = length - len(source) # total padding
+        front = np.random.randint(0, to_pad + 1) # random padding before
+        back = to_pad - front
+        sources_padded.append(np.pad(source, (front, back), mode='constant'))
+        sources_info['start_list'].append(front)
+    
+    return sources_info, sources_padded
 
 
 def set_loudness(sources_list):
-    """ Compute original loudness and normalise them randomly """
+    """Compute original loudness and normalize them randomly."""
     # Initialize loudness
     loudness_list = []
     # In LibriSpeech all sources are at 16KHz hence the meter
@@ -380,26 +382,25 @@ def set_loudness(sources_list):
     return loudness_list, target_loudness_list, sources_list_norm
 
 
-def mix(sources_list_norm):
-    """ Do the mixture for min mode and max mode """
-    # Initialize mixture
-    mixture_max = np.zeros_like(sources_list_norm[0])
-    for i in range(len(sources_list_norm)):
-        mixture_max += sources_list_norm[i]
-    return mixture_max
+def mix(sources_list):
+    """Mix the sources."""
+    mixture = np.zeros_like(sources_list[0])
+    for i in range(len(sources_list)):
+        mixture += sources_list[i]
+    return mixture
 
 
-def check_for_cliping(mixture_max, sources_list_norm):
-    """Check the mixture (mode max) for clipping and re normalize if needed."""
+def check_for_clipping(mixture, sources_list_norm):
+    """Check the mixture for clipping and re-normalize if needed."""
     # Initialize renormalized sources and loudness
     renormalize_loudness = []
     clip = False
     # Recreate the meter
     meter = pyln.Meter(RATE)
     # Check for clipping in mixtures
-    if np.max(np.abs(mixture_max)) > MAX_AMP:
+    if np.max(np.abs(mixture)) > MAX_AMP:
         clip = True
-        weight = MAX_AMP / np.max(np.abs(mixture_max))
+        weight = MAX_AMP / np.max(np.abs(mixture))
     else:
         weight = 1
     # Renormalize
@@ -410,7 +411,7 @@ def check_for_cliping(mixture_max, sources_list_norm):
 
 
 def compute_gain(loudness, renormalize_loudness):
-    """ Compute the gain between the original and target loudness"""
+    """Compute the gain between the original and target loudness."""
     gain = []
     for i in range(len(loudness)):
         delta_loudness = renormalize_loudness[i] - loudness[i]
@@ -419,11 +420,13 @@ def compute_gain(loudness, renormalize_loudness):
 
 
 def get_row(sources_info, gain_list, n_src):
-    """ Get new row for each mixture/info dataframe """
-    row_mixture = [sources_info['mixtures_id']]
-    row_info = [sources_info['mixtures_id']]
+    """Get an empty row for the mixture and info dataframes."""
+    row_mixture = [sources_info['mixture_id']]
+    row_info = [sources_info['mixture_id']]
+    row_mixture.append(sources_info['speaker_id_list'][0]) # primary speaker
     for i in range(n_src):
         row_mixture.append(sources_info['path_list'][i])
+        row_mixture.append(sources_info['start_list'][i])
         row_mixture.append(gain_list[i])
         row_info.append(sources_info['speaker_id_list'][i])
         row_info.append(sources_info['sex_list'][i])
