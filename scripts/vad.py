@@ -1,10 +1,7 @@
 import webrtcvad
 import matplotlib.pyplot as plt
-import wave
 import numpy as np
-import os
-import matplotlib.pyplot as plt
-from tqdm import tqdm
+import soundfile
 
 
 class Frame(object):
@@ -28,7 +25,7 @@ class WebRTCVAD:
         Labels are computed per frame, smoothed and returned
         as sample index ranges."""
         # Read audio and split into frames
-        audio_pcm, sr = self._read_wave(path)
+        audio_pcm, sr = self._read_audio_as_pcm(path)
         frames = self._frame_generator(audio_pcm, sr)
         # Get the VAD labels for each frame
         labels = [int(self.vad.is_speech(frame.bytes, sr)) for frame in frames]
@@ -63,19 +60,24 @@ class WebRTCVAD:
         return ranges
 
 
-    def _read_wave(self, path):
-        """Reads a .wav file.
+    def _float_to_pcm16(self, audio):
+        """Converts float audio data to PCM16.
+        From Jon Nordby: https://stackoverflow.com/a/61836023
+        """
+        ints = (audio * 32767).astype(np.int16)
+        little_endian = ints.astype('<u2')
+        buf = little_endian.tostring()
+        return buf
+
+
+    def _read_audio_as_pcm(self, path):
+        """Reads an audio file (any format supported by soundfile).
         Takes the path, and returns (PCM audio data, sample rate).
         """
-        with wave.open(path, 'rb') as wf:
-            num_channels = wf.getnchannels()
-            assert num_channels == 1
-            sample_width = wf.getsampwidth()
-            assert sample_width == 2
-            sample_rate = wf.getframerate()
-            assert sample_rate in (8000, 16000, 32000, 48000)
-            pcm_data = wf.readframes(wf.getnframes())
-            return pcm_data, sample_rate
+        audio, sample_rate = soundfile.read(path)
+        assert sample_rate in (8000, 16000, 32000, 48000)
+        pcm_data = self._float_to_pcm16(audio)
+        return pcm_data, sample_rate
 
 
     def _frame_generator(self, audio, sample_rate):
