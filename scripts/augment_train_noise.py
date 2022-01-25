@@ -23,8 +23,8 @@ def main(args):
         os.mkdir(aug_dir)
         print(f'Augmenting {subdir} files')
         # Transform audio speed
-        # augment_noise(sound_paths, 0.8)
-        # augment_noise(sound_paths, 1.2)
+        augment_noise(sound_paths, 0.8)
+        augment_noise(sound_paths, 1.2)
         return
 
     aug_paths = glob.glob(os.path.join(aug_dir, '**/*.wav'), recursive=True)
@@ -35,8 +35,8 @@ def main(args):
         to_be_removed_12 = [x.replace('sp12','') for x in aug_paths if 'sp12' in x ]
         sound_paths_08 = list(set(sound_paths) - set(to_be_removed_08))
         sound_paths_12 = list(set(sound_paths) - set(to_be_removed_12))
-        # augment_noise(sound_paths_08, 0.8)
-        # augment_noise(sound_paths_12, 1.2)
+        augment_noise(sound_paths_08, 0.8)
+        augment_noise(sound_paths_12, 1.2)
     else:
         print(f'Augmented files already generated in {aug_dir}')
 
