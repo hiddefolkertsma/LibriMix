@@ -1,20 +1,19 @@
 ### About the dataset
 This fork of LibriMix is an open source dataset for source separation in noisy 
-environments. It is derived from LibriSpeech signals (clean subset), WHAM noise and simulated room impulse responses ([OpenSLR 26](https://www.openslr.org/26/)).
+environments. It is derived from LibriSpeech signals (clean subset) and WHAM noise.
 
 ## Extensions made
-This is a fork from https://github.com/JorisCos/LibriMix, this version of LibriMix has the following extensions:
-- For each mixture, a random other utterance from that mixture's primary speaker is chosen as an embedding utterance. **This currently picks an utterance from the same chapter, it may be beneficial to pick one from any chapter read by that speaker**
-- For each mixture, a random room impulse response (RIR) from OpenSLR 26 is chosen. The noisy mixture is then convolved with this RIR before it is saved.
-
+This is a fork from https://github.com/JorisCos/LibriMix, this version of LibriMix has the following extensions/modifications:
+- The WHAM! dataset is first *chunked*. That means we concatenate all noise files and cut that into chunks of a given size (default: 10s).
+- Instead of generating fully overlapped speech segments with various lengths, all our output clips have the same length (the length of the noise chunks). The speech segments are randomly placed in this clip. If they are longer than the noise clip, they are trimmed on the right side. The `min` and `max` mode don't exist in this fork.
+- Various optimizations (mostly in the metadata generation).
 
 ### Generating LibriMix
-To generate LibriMix, clone the repo and run the main script : 
-[`generate_librimix.sh`](./generate_librimix.sh)
-
+To generate LibriMix, clone the repo and run the setup script. This downloads all datasets, chunks WHAM and creates metadata (if necessary). Then run `./generate_librimix.sh`.
 ```
 git clone https://github.com/hiddefolkertsma/LibriMix
-cd LibriMix 
+cd LibriMix
+./setup.sh storage_dir
 ./generate_librimix.sh storage_dir
 ```
 
@@ -30,39 +29,7 @@ For Linux :
 conda install -c conda-forge sox
 ```
 
-You can either change `storage_dir` and `n_src` by hand in 
-the script or use the command line.  
-By default, LibriMix will be generated for 2 and 3 speakers,
-at both 16Khz and 8kHz, 
-for min max modes, and all mixture types will be saved (mix_clean, 
-mix_both and mix_single). This represents around **430GB** 
-of data for Libri2Mix and **332GB** for Libri3Mix. 
-You will also need to store LibriSpeech and wham_noise_augmented during
-generation for an additional **30GB** and **50GB**.
-Please refer to 
-[this section](#Features) if you want to generate less data.
-You will also find a detailed storage usage description in each metadata folder.
-
-
-### Features
-In LibriMix you can choose :
-* The number of sources in the mixtures.
-* The sample rate  of the dataset from 16 KHz to any frequency below. 
-* The mode of mixtures : min (the mixture ends when the shortest source
- ends) or max (the mixtures ends with the longest source)
- * The type of mixture : mix_clean (utterances only) mix_both (utterances + noise) mix_single (1 utterance + noise)
-
-You can customize the generation by editing ``` generate_librimix.sh ```.
- 
-### Note on scripts
-For the sake of transparency, we have released the metadata generation 
-scripts. However, we wish to avoid any changes to the dataset, 
-especially to the test subset that shouldn't be changed under any 
-circumstance.
-
-### Why use LibriMix
-More than just an open source dataset, LibriMix aims towards generalizable speech separation.
-You can checkout section 3.3 of our paper [here](https://arxiv.org/pdf/2005.11262.pdf) for more details.
+You can either change `storage_dir` and `n_src` by hand in the script or use the command line. By default, LibriMix will be generated for 2 and 3 speakers, at 16Khz, for type `mix_both`.
 
 ### Related work
 If you wish to implement models based on LibriMix you can checkout 
