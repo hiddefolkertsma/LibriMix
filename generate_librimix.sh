@@ -9,7 +9,7 @@ python_path=python
 
 for n_src in 2 3; do
     metadata_dir=metadata/Libri$n_src"Mix"
-    $python_path scripts/create_librimix_from_metadata.py 
+    $python_path scripts/create_librimix_from_metadata.py \
         --librispeech_dir $librispeech_dir \
         --wham_dir $wham_dir \
         --metadata_dir $metadata_dir \
