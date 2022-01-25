@@ -1,6 +1,5 @@
 import os
 import argparse
-from re import U
 import soundfile as sf
 import pandas as pd
 import numpy as np
@@ -16,6 +15,7 @@ RATE = 16000
 # Frame size in ms and aggressiveness for the VAD
 FRAME_SIZE_MS = 30
 AGGRESSIVENESS = 3
+EXTENSION = 'flac'
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--librispeech_dir',
@@ -41,8 +41,7 @@ parser.add_argument('--n_src',
 parser.add_argument('--freqs',
                     nargs='+',
                     default=['8k', '16k'],
-                    help='--freqs 16k 8k will create 2 directories wav8k '
-                    'and wav16k')
+                    help=f'Sample rates to be generated')
 parser.add_argument('--types',
                     nargs='+',
                     default=['mix_clean', 'mix_both', 'mix_single'],
@@ -93,7 +92,7 @@ def process_metadata_file(csv_path, freqs, n_src, librispeech_dir, wham_dir,
     md_file = pd.read_csv(csv_path, engine='python')
     for freq in freqs:
         # Get the frequency directory path
-        freq_path = os.path.join(out_dir, 'wav' + freq)
+        freq_path = os.path.join(out_dir, f"{EXTENSION}{freq}")
         # Transform freq = "16k" into 16000
         freq = int(freq.strip('k')) * 1000
         # Subset metadata path
@@ -162,7 +161,7 @@ def process_utterances(md_file, librispeech_dir, wham_dir, freq, subdirs,
     print(f'Generating VAD labels for {md_file.shape[0]} primary speaker utterances')
     for mixture_id in tqdm.tqdm(md_file['mixture_ID']):
         # Get the path to the primary speaker's utterance
-        utt_path = os.path.join(dir_path, 's1', f'{mixture_id}.wav')
+        utt_path = os.path.join(dir_path, 's1', f'{mixture_id}.{EXTENSION}')
         # Get labels and save
         labels = vad.label(utt_path)
         labels_path = os.path.join(dir_path, 'labels', f'{mixture_id}.npy')
@@ -189,7 +188,6 @@ def process_utterances(md_file, librispeech_dir, wham_dir, freq, subdirs,
 
     # Save the metadata files
     for md_df in md_dic:
-        # Save the metadata in out_dir ./data/wavxk/mode/subset
         md_dic[md_df]['labels_path'] = labels_paths
         save_path_mixture = os.path.join(subset_metadata_path, md_df + '.csv')
         md_dic[md_df].to_csv(save_path_mixture, index=False)
@@ -380,7 +378,7 @@ def pad_lengths(source_list, start_list):
 
 def write_audio(mix_id, signal, dir_path, subdir, freq):
     """Write signal to a file and return its path."""
-    ex_filename = mix_id + '.wav'
+    ex_filename = f"{mix_id}.{EXTENSION}"
     save_path = os.path.join(dir_path, subdir, ex_filename)
     abs_save_path = os.path.abspath(save_path)
     sf.write(abs_save_path, signal, freq)
