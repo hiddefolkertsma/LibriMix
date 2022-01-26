@@ -67,13 +67,13 @@ wait
 python_path=python
 
 $python_path scripts/augment_train_noise.py --wham_dir $wham_dir
-wham_dir_chunked=$wham_dir/chunked_10s
+wham_dir_chunked=$wham_dir/chunked_20s
 
 if [[ ! -d "$wham_dir_chunked" ]]
 then
     echo "Chunked WHAM not found. Creating chunked WHAM..."
 	$python_path scripts/chunk_speakers.py $wham_dir $wham_dir_chunked
-	$python_path scripts/create_wham_metadata.py --wham_dir $wham_dir_chunked
+	$python_path scripts/create_wham_metadata.py --wham_dir $wham_dir_chunked -z 20
 else
 	echo "Chunked WHAM found in $wham_dir_chunked"
 fi

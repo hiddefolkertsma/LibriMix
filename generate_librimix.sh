@@ -3,7 +3,7 @@ set -eu  # Exit on error
 
 storage_dir=$1
 librispeech_dir=$storage_dir/LibriSpeech
-wham_dir=$storage_dir/wham_noise/chunked_10s
+wham_dir=$storage_dir/wham_noise/chunked_20s
 librimix_outdir=$storage_dir
 python_path=python
 
