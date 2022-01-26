@@ -5,7 +5,7 @@ storage_dir=$1
 librispeech_dir=$storage_dir/LibriSpeech
 wham_dir=$storage_dir/wham_noise/chunked_20s
 librimix_outdir=$storage_dir
-python_path=python
+python_path=python3
 
 for n_src in 2 3; do
     metadata_dir=metadata/Libri$n_src"Mix"

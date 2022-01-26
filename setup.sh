@@ -48,6 +48,7 @@ function LibriSpeech_clean360() {
 function wham() {
 	if ! test -e $wham_dir; then
 		echo "Download wham_noise into $storage_dir"
+
 		# If downloading stalls for more than 20s, relaunch from previous state.
 		wget -c --tries=0 --read-timeout=20 https://storage.googleapis.com/whisper-public/wham_noise.zip -P $storage_dir
 		unzip -qn $storage_dir/wham_noise.zip -d $storage_dir
@@ -64,11 +65,12 @@ wham &
 wait
 
 # Path to python
-python_path=python
+python_path=python3
 
 $python_path scripts/augment_train_noise.py --wham_dir $wham_dir
 wham_dir_chunked=$wham_dir/chunked_20s
 
+# Chunk WHAM into 20s segments
 if [[ ! -d "$wham_dir_chunked" ]]
 then
     echo "Chunked WHAM not found. Creating chunked WHAM..."
@@ -77,6 +79,25 @@ then
 else
 	echo "Chunked WHAM found in $wham_dir_chunked"
 fi
+
+# Chunk LibriSpeech to 6s segments for computing embeddings
+librispeech_chunked=$librispeech_dir/chunked
+function chunk_librispeech() {
+        if ! test -e $librispeech_chunked/$1; then
+                echo "Chunking $1 into $librispeech_chunked/$1"
+                $python_path scripts/chunk_speakers.py $librispeech_dir/$1 $librispeech_chunked/$1
+                echo "Done chunking $1"
+        else
+                echo "Chunked $1 found in $librispeech_chunked/$1"
+        fi
+}
+
+chunk_librispeech dev-clean &
+chunk_librispeech test-clean &
+chunk_librispeech train-clean-100 &
+chunk_librispeech train-clean-360 &
+
+wait
 
 # Create metadata
 for n_src in 2 3; do
