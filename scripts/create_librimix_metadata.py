@@ -210,8 +210,10 @@ def generate_pairs(librispeech_md_file, wham_md_file, n_src):
             utt_pairs = generate_utt_pairs(librispeech_md_file, utt_pairs, n_src)
             noises = choose_noises(utt_pairs, noises, wham_md_file)
             utt_pairs, noises = remove_duplicates(utt_pairs, noises)
+            if n_src == 1: # Can't remove duplicates with 1 source
+                break
         utt_pairs = utt_pairs[:3000]
-        noises = noises[:3000]
+        noises = noises[:len(utt_pairs)]
 
     return list(zip(utt_pairs, noises))
 
