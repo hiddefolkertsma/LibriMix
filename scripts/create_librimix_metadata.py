@@ -120,6 +120,8 @@ def check_already_generated(md_dir, dataset, to_be_ignored,
                 to_be_ignored.append('train-clean-100.csv')
             elif 'train-clean-360' in generated:
                 to_be_ignored.append('train-clean-360.csv')
+            elif 'train-other-500' in generated:
+                to_be_ignored.append('train-other-500.csv')
             elif 'dev' in generated:
                 to_be_ignored.append('dev-clean.csv')
             elif 'test' in generated:
@@ -134,35 +136,19 @@ def create_librimix_df(librispeech_md_file, librispeech_dir,
                        wham_md_file, wham_dir, n_src):
     """Generate LibriMix dataframe from LibriSpeech and WHAM metadata files."""
 
-    # Create a dataframe that will be used to generate sources and mixtures
-    mixtures_md = pd.DataFrame(columns=['mixture_ID', 'primary_speaker'])
-    # Create a dataframe with additional info.
-    mixtures_info = pd.DataFrame(columns=['mixture_ID'])
-    # Add columns (depends on the number of sources)
-    for i in range(n_src):
-        mixtures_md[f"source_{i + 1}_path"] = {}
-        mixtures_md[f"source_{i + 1}_start"] = {}
-        mixtures_md[f"source_{i + 1}_gain"] = {}
-        mixtures_info[f"speaker_{i + 1}_ID"] = {}
-        mixtures_info[f"speaker_{i + 1}_sex"] = {}
-    mixtures_md["noise_path"] = {}
-    mixtures_md["noise_gain"] = {}
     # Generate pairs of sources and accompanying noise to mix
     pairs = generate_pairs(librispeech_md_file, wham_md_file, n_src)
-    clip_counter = 0
 
     # Compute the mixture metadata for each pair
-    for row_mixture, row_info, clipped in tqdm.contrib.concurrent.process_map(
+    result = tqdm.contrib.concurrent.process_map(
             functools.partial(process_pair, librispeech_md_file, librispeech_dir,
-                       wham_md_file, wham_dir, n_src),
-        pairs, chunksize=10, 
-    ):
-        mixtures_md.loc[len(mixtures_md)] = row_mixture
-        mixtures_info.loc[len(mixtures_info)] = row_info
-        clip_counter += clipped
+                       wham_md_file, wham_dir, n_src), pairs, chunksize=10)
 
-    # For each combination create a new line in the dataframe
-    print(f"Among {len(mixtures_md)} mixtures, {clip_counter} clipped.")
+    # Create mixture dataframes with the raw metadata lists
+    source_infos, gain_lists, clipped = zip(*result)
+    mixtures_md, mixtures_info = make_metadata_dataframe(source_infos, gain_lists, n_src)
+    print(f"Among {len(mixtures_md)} mixtures, {np.sum(clipped)} clipped.")
+
     return mixtures_md, mixtures_info
 
 
@@ -189,10 +175,8 @@ def process_pair(librispeech_md_file, librispeech_dir,
                                                         source_list_norm)
     # Compute gain
     gain_list = compute_gain(loudness, renormalize_loudness)
-    # Add information to the dataframe
-    row_mixture, row_info = get_row(source_info, gain_list, n_src)
     
-    return row_mixture, row_info, did_clip
+    return source_info, gain_list, did_clip
 
 
 def generate_pairs(librispeech_md_file, wham_md_file, n_src):
@@ -421,20 +405,27 @@ def compute_gain(loudness, renormalize_loudness):
     return gain
 
 
-def get_row(sources_info, gain_list, n_src):
-    """Get an empty row for the mixture and info dataframes."""
-    row_mixture = [sources_info['mixture_id']]
-    row_info = [sources_info['mixture_id']]
-    row_mixture.append(sources_info['speaker_id_list'][0]) # primary speaker
+def make_metadata_dataframe(source_infos, gain_lists, n_src):
+    """Create the Pandas dataframes with the metadata."""
+    # Create a dataframe that will be used to generate sources and mixtures
+    mixtures_md = pd.DataFrame()
+    # Create a dataframe with additional info.
+    mixtures_info = pd.DataFrame()
+    # Add the metadata to the dataframe
+    mixture_ids = [md['mixture_id'] for md in source_infos]
+    mixtures_md['mixture_ID'] = mixture_ids
+    mixtures_md['primary_speaker'] = [md['speaker_id_list'][0] for md in source_infos]
+    mixtures_info['mixture_ID'] = mixture_ids
     for i in range(n_src):
-        row_mixture.append(sources_info['path_list'][i])
-        row_mixture.append(sources_info['start_list'][i])
-        row_mixture.append(gain_list[i])
-        row_info.append(sources_info['speaker_id_list'][i])
-        row_info.append(sources_info['sex_list'][i])
-    row_mixture.append(sources_info['noise_path'])
-    row_mixture.append(gain_list[-1])
-    return row_mixture, row_info
+        mixtures_md[f'source_{i + 1}_path'] = [md['path_list'][i] for md in source_infos]
+        mixtures_md[f'source_{i + 1}_start'] = [md['start_list'][i] for md in source_infos]
+        mixtures_md[f'source_{i + 1}_gain'] = [gain_list[i] for gain_list in gain_lists]
+        mixtures_info[f'speaker_{i + 1}_ID'] = [md['speaker_id_list'][i] for md in source_infos]
+        mixtures_info[f'speaker_{i + 1}_sex'] = [md['sex_list'][i] for md in source_infos]
+    mixtures_md['noise_path'] = [md['noise_path'] for md in source_infos]
+    mixtures_md['noise_gain'] = [gain_list[-1] for gain_list in gain_lists]
+    
+    return mixtures_md, mixtures_info
 
 
 if __name__ == "__main__":
