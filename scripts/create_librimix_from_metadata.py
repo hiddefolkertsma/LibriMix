@@ -156,17 +156,9 @@ def process_utterances(md_file, librispeech_dir, wham_dir, freq, subdirs,
                                     abs_noise_path, length, subdir)
 
     # Generate VAD labels for primary speaker utterances
-    vad = WebRTCVAD(AGGRESSIVENESS, FRAME_SIZE_MS)
-    labels_paths = []
     print(f'Generating VAD labels for {md_file.shape[0]} primary speaker utterances')
-    for mixture_id in tqdm.tqdm(md_file['mixture_ID']):
-        # Get the path to the primary speaker's utterance
-        utt_path = os.path.join(dir_path, 's1', f'{mixture_id}.{EXTENSION}')
-        # Get labels and save
-        labels = vad.label(utt_path)
-        labels_path = os.path.join(dir_path, 'labels', f'{mixture_id}.npy')
-        labels_paths.append(labels_path)
-        np.save(labels_path, labels)
+    mixture_ids = md_file['mixture_ID']
+    labels_paths = tqdm.contrib.concurrent.process_map(functools.partial(label_vad, dir_path), mixture_ids, chunksize=100)
 
     # Get the primary speakers' utterances
     # Example: dev-clean/3536/8226/3536-8226-0026.flac -> /dev-clean/3536
@@ -231,6 +223,17 @@ def process_utterance(n_src, librispeech_dir, wham_dir, freq, subdirs,
                     abs_noise_path, length, subdir))
 
     return res
+
+
+def label_vad(dir_path, mixture_id):
+    vad = WebRTCVAD(AGGRESSIVENESS, FRAME_SIZE_MS)
+    # Get the path to the primary speaker's utterance
+    utt_path = os.path.join(dir_path, 's1', f'{mixture_id}.{EXTENSION}')
+    # Get labels and save
+    labels = vad.label(utt_path)
+    labels_path = os.path.join(dir_path, 'labels', f'{mixture_id}.npy')
+    np.save(labels_path, labels)
+    return labels_path
 
 
 def create_empty_metrics_md(n_src, subdir):
