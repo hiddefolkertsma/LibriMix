@@ -4,7 +4,7 @@ environments. It is derived from LibriSpeech signals (clean subset) and WHAM noi
 
 ## Extensions made
 This is a fork from https://github.com/JorisCos/LibriMix, this version of LibriMix has the following extensions/modifications:
-- The WHAM! dataset is first *chunked*. That means we concatenate all noise files and cut that into chunks of a given size (default: 10s).
+- The WHAM! dataset is first *chunked*. That means we concatenate all noise files and cut that into chunks of a given size (default: 20s).
 - Instead of generating fully overlapped speech segments with various lengths, all our output clips have the same length (the length of the noise chunks). The speech segments are randomly placed in this clip. If they are longer than the noise clip, they are trimmed on the right side. The `min` and `max` mode don't exist in this fork.
 - Various optimizations (mostly in the metadata generation).
 
