@@ -122,10 +122,14 @@ def check_already_generated(md_dir, dataset, to_be_ignored,
                 to_be_ignored.append('train-clean-360.csv')
             elif 'train-other-500' in generated:
                 to_be_ignored.append('train-other-500.csv')
-            elif 'dev' in generated:
+            elif 'dev-clean' in generated:
                 to_be_ignored.append('dev-clean.csv')
-            elif 'test' in generated:
+            elif 'dev-other' in generated:
+                to_be_ignored.append('dev-other.csv')
+            elif 'test-clean' in generated:
                 to_be_ignored.append('test-clean.csv')
+            elif 'test-other' in generated:
+                to_be_ignored.append('test-other.csv')
             print(f"{generated} already exists in "
                   f"{md_dir} it won't be overwritten")
     for element in to_be_ignored:
